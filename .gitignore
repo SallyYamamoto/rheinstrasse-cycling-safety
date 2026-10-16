@@ -1,0 +1,10 @@
+# Never stage source imagery, unrelated source material or local credentials.
+**/*parking*private*
+**/*.csv
+**/*.qgz
+**/*.laz
+**/*.blend
+.env*
+*secret*
+*private-token*
+node_modules/

@@ -1,0 +1,685 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+  <meta charset="utf-8">
+  <title>Rheinstrasse | Cycling Safety</title>
+
+  <script src="https://cesium.com/downloads/cesiumjs/releases/1.146/Build/Cesium/Cesium.js"></script>
+  <script src="./munich-pov-production.js"></script>
+  <script src="./parked-cars.js"></script>
+  <script src="./accident-details.js"></script>
+  <script src="./intersection-safety.js"></script>
+  <link href="https://cesium.com/downloads/cesiumjs/releases/1.146/Build/Cesium/Widgets/widgets.css" rel="stylesheet">
+
+  <style>
+    #modeControls {
+      position: absolute; z-index: 22; top: 16px; left: 50%;
+      transform: translateX(-50%); display: grid; grid-template-columns: 1fr 1fr;
+      gap: 6px; width: min(580px, calc(100% - 32px)); box-sizing: border-box;
+      padding: 6px; border-radius: 4px; background: rgba(25, 28, 31, .94);
+      color: #fff; font: 14px Arial, sans-serif;
+    }
+    #modeControls[hidden] { display: none; }
+    #modeControls button {
+      position: relative; padding: 12px 28px 12px 13px; border-radius: 2px;
+      border: 1px solid #62676b; background: transparent; color: #c5c8ca;
+      font: bold 14px Arial, sans-serif; cursor: pointer; text-align: left;
+    }
+    #modeControls button:hover, #modeControls button:focus-visible { border-color: #fff; }
+    #modeControls button[aria-pressed="true"] {
+      background: #f3f3f1; color: #17191a; border-color: #f3f3f1;
+    }
+    #modeControls button[aria-pressed="true"]::after {
+      content: "✓"; position: absolute; right: 10px; top: 50%; transform: translateY(-50%);
+    }
+    #modeStatus { position: absolute; width: 1px; height: 1px; overflow: hidden;
+      clip-path: inset(50%); white-space: nowrap; }
+    @media (max-width: 600px) { #modeControls { top: 8px; width: calc(100% - 16px); } }
+        #observedInfo {
+      position: absolute; z-index: 21; top: 96px; left: 16px;
+      width: min(360px, calc(100vw - 32px)); box-sizing: border-box;
+      padding: 10px 13px; border-radius: 10px;
+      background: rgba(25, 32, 40, .92); color: #fff;
+      font: 13px/1.5 Arial, sans-serif;
+    }
+    #observedInfo[hidden], #playbackControls[hidden] { display: none !important; }
+    #observedInfo summary { cursor: pointer; font-weight: bold; }
+    #observedInfo p { margin: 9px 0; }
+    #observedInfo a { color: #9cdaff; }
+    @media (max-width: 800px) { #observedInfo { top: 90px; left: 8px; } }
+    #povToast {
+      position: absolute; z-index: 32; bottom: 100px; left: 50%;
+      transform: translateX(-50%); box-sizing: border-box;
+      width: max-content; max-width: min(510px, calc(100% - 24px));
+      padding: 15px 24px; border: 0;
+      border-radius: 4px; background: rgba(0, 0, 0, .7);
+      box-shadow: none; text-align: center;
+      color: white; font: 600 18px/1.4 Arial, sans-serif;
+      pointer-events: none;
+    }
+    #povToast .hintDetail { display: block; margin-top: 5px; color: #fff; font: 14px/1.4 Arial, sans-serif; }
+    #povLegend {
+      position: absolute; z-index: 25; bottom: 164px; left: 16px;
+      padding: 10px 12px; border-radius: 9px;
+      background: rgba(25, 32, 40, .92); color: #fff;
+      font: 12px/1.55 Arial, sans-serif; pointer-events: none;
+    }
+    #povToast[hidden], #povLegend[hidden] { display: none; }
+    #povLegend .key { display: inline-block; width: 12px; height: 12px;
+      vertical-align: -2px; border: 2px solid; box-sizing: border-box; margin-right: 4px; }
+    #povLegend .green { border-color: #41e481; }
+    #povLegend .red { border-color: #f05252; }
+    #povLegend .gray { border-color: #9ca3af; }
+    @media (max-width: 1150px) { #povToast { bottom: 220px; } }
+    @media (max-width: 800px) { #povToast { font-size: 16px; padding: 12px 16px; } #povLegend { bottom: 164px; left: 8px; } }
+    #accidentPanel {
+      position: absolute; z-index: 21; top: 96px; left: 16px;
+      width: min(360px, calc(100vw - 32px)); box-sizing: border-box;
+      max-height: calc(100vh - 210px); overflow-y: auto;
+      padding: 16px; border-radius: 4px;
+      background: rgba(27, 30, 32, .94); color: #f3f3f1;
+      font: 13px/1.5 Arial, sans-serif;
+    }
+    #accidentPanel[hidden], #accidentDetail[hidden] { display: none; }
+    #accidentTitle { display: block; font-size: 16px; font-weight: 600; }
+    #accidentPanel .panelNote { margin: 5px 0 12px; color: #b7bbbe; font-size: 11px; }
+    .accidentCounts { display: grid; grid-template-columns: 1fr auto; gap: 6px 16px; margin: 12px 0; }
+    .accidentCounts dt, .accidentCounts dd { margin: 0; }
+    .accidentCounts dd { font-weight: 600; font-variant-numeric: tabular-nums; }
+    #accidentKey { padding-top: 12px; margin-top: 12px; border-top: 1px solid #55595c; }
+    #accidentKey strong { display: block; margin-bottom: 7px; font-size: 12px; font-weight: 600; }
+    #accidentKey .legendRow { display: flex; align-items: center; gap: 8px; margin: 4px 0; }
+    #accidentKey img { width: 22px; height: 22px; }
+    #accidentBikeOnly { margin-top: 10px; padding: 7px 10px; border: 1px solid #d99054;
+      border-radius: 2px; background: transparent; color: #efaa71;
+      font: 13px Arial, sans-serif; cursor: pointer; }
+    #accidentBikeOnly[aria-pressed="true"] { background: #d99054; color: #17191a; }
+    #accidentBikeOnly:disabled { opacity: .45; cursor: default; }
+    #accidentDetail { border-top: 1px solid #55595c; margin-top: 16px; padding-top: 12px; }
+    #accidentDetail header { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+    #closeAccidentDetail { color: #ddd; background: none; border: 0; cursor: pointer; font-size: 20px; }
+    #accidentDetailRows { margin: 10px 0; }
+    #accidentDetailRows dt { color: #b7bbbe; font-size: 11px; margin-top: 8px; }
+    #accidentDetailRows dd { margin: 1px 0 0; }
+    @media (max-width: 600px) { #accidentPanel { top: 100px; left: 8px; max-height: calc(100vh - 210px); } }
+        html,
+    body,
+    #cesiumContainer {
+      width: 100%;
+      height: 100%;
+      margin: 0;
+      padding: 0;
+      overflow: hidden;
+
+      #playbackControls {
+        position: absolute;
+        z-index: 10;
+        left: 50%;
+        bottom: 24px;
+        transform: translateX(-50%);
+        display: flex;
+        align-items: center;
+        gap: 12px;
+        box-sizing: border-box;
+        width: min(640px, calc(100% - 32px));
+        padding: 12px 16px;
+        border-radius: 12px;
+        background: rgba(25, 32, 40, 0.88);
+        color: white;
+        font: 14px Arial, sans-serif;
+      }
+
+      #playPause {
+        flex: none;
+        min-width: 72px;
+        padding: 8px;
+        border: 0;
+        border-radius: 7px;
+        background: #e8eef4;
+        color: #17212b;
+        cursor: pointer;
+      }
+
+      #timeSlider {
+        flex: 1;
+        min-width: 60px;
+        cursor: pointer;
+      }
+
+      #timeLabel {
+        flex: none;
+        min-width: 100px;
+        text-align: right;
+        font-variant-numeric: tabular-nums;
+      }
+
+      #playPause:disabled,
+      #timeSlider:disabled {
+        opacity: 0.5;
+        cursor: wait;
+      }
+    }
+  </style>
+</head>
+
+<body>
+  <div id="cesiumContainer"></div>
+  <div id="publishNotice" hidden role="alert" style="position:absolute;z-index:999;top:20px;left:50%;transform:translateX(-50%);background:#15191e;color:white;padding:15px 18px;border-radius:7px;max-width:520px;font:14px/1.5 Arial,sans-serif">Configure an application-specific Cesium ion read-only token before publishing. See README.md.</div>
+  <div id="modeControls" hidden>
+    <button id="modeReal" type="button" aria-pressed="true">Observed traffic flow</button>
+    <button id="modeScenario" type="button" aria-pressed="false">Cycling intersection safety</button>
+    <span id="modeStatus">October 2022 · TUMDOT-MUC</span>
+  </div>
+  <details id="observedInfo">
+    <summary>About the observed traffic data</summary>
+    <p><strong>Recording:</strong> Filmed on 12 October 2022 along Rheinstrasse, Munich. TUMDOT-MUC used 12 drones at six locations to cover approximately 700 m during the afternoon.</p>
+    <p><strong>From video to open data:</strong> Road users were detected, classified and tracked in drone footage. Processing removed misdetections and stationary objects, joined tracks interrupted by occlusion, interpolated gaps and aligned the videos in space and time. The published CSV records positions every 0.08 seconds.</p>
+    <p><strong>In this viewer:</strong> Only part 2 of the published CSV is used (10 minutes). Passenger car and bicycle trajectories were extracted, converted from UTM zone 32N to geographic coordinates, aligned vertically with the CityGML model and displayed using 3D assets. Vehicles in the intersection safety scenarios are simulated; they are not part of this observed traffic flow.</p>
+    <p><a href="https://www.mos.ed.tum.de/vt/forschung/datensaetze/tumdot-muc/" target="_blank" rel="noopener noreferrer">TUMDOT-MUC project and data source (CC BY-NC 4.0) ↗</a></p>
+    <p><strong>Data source:</strong> TUMDOT-MUC (<a href="https://www.mos.ed.tum.de/en/vt/research/data-sets/tumdot-muc/" target="_blank" rel="noopener noreferrer">project and data</a>), CC BY-NC 4.0. Reference: Kutsch, A., Margreiter, M. &amp; Bogenberger, K. (2024), <a href="https://doi.org/10.1007/s42421-024-00101-5" target="_blank" rel="noopener noreferrer">TUMDOT–MUC: Data Collection and Processing of Multimodal Trajectories Collected by Aerial Drones</a>, Data Science for Transportation 6, 15.</p>
+    <p><strong>3D asset credits:</strong> Car model created for this project with ChatGPT. Cyclist model <code>Meshy_Red_Rider_colored.glb</code> is a separate asset whose colors were edited with ChatGPT. Tree and shrub generated with <a href="https://github.com/dgreenheck/ez-tree" target="_blank" rel="noopener noreferrer">EZ-Tree by Daniel Greenheck</a> (MIT software); license notice in THIRD_PARTY_NOTICES.md.</p>
+    <p><strong>Parked vehicles:</strong> Static placements from 230 vehicle footprints created by the project author for the visibility analysis using DLR inputs. They are excluded from the moving car/bicycle proximity test.</p>
+  </details>
+  <div id="povToast" hidden role="status" aria-live="polite"></div>
+  <div id="povLegend" hidden>
+    <strong>□ Opposite vehicle type · within 35 m</strong><br>
+    <span class="key green"></span>Green: visible　<span class="key red"></span>Red: occluded<br>
+    <span class="key gray"></span>Grey: unknown or being checked
+  </div>
+  <aside id="accidentPanel" hidden aria-label="Intersection safety information">
+    <strong id="accidentTitle">Intersection safety</strong>
+    <p class="panelNote">Recorded injury accidents · 2016–2025</p>
+    <div id="accidentSummary"></div>
+    <section id="accidentKey" aria-label="Accident locations">
+      <strong>Accident locations</strong>
+      <div class="legendRow"><img id="bikeAccidentSymbol" alt=""><span>Bicycle involved</span></div>
+      <div class="legendRow"><img id="otherAccidentSymbol" alt=""><span>Other accidents</span></div>
+      <button id="accidentBikeOnly" type="button" aria-pressed="false">Bicycle accidents only</button>
+      <p class="panelNote">Source: &copy; Statistische &Auml;mter des Bundes und der L&auml;nder, <a href="https://www.statistikportal.de/de/karten/unfallatlas" target="_blank" rel="noopener noreferrer">Unfallatlas 2016–2025</a>, <a href="https://www.govdata.de/dl-de/by-2-0" target="_blank" rel="noopener noreferrer">dl-de/by-2-0</a>. Accident records were geographically filtered and joined with intersection information for this viewer. Animations are simulated.</p>
+    </section>
+    <section id="accidentDetail" hidden aria-label="Selected accident">
+      <header><strong id="accidentDetailTitle"></strong><button id="closeAccidentDetail" type="button" aria-label="Close accident details">×</button></header>
+      <dl id="accidentDetailRows"></dl>
+      <p class="panelNote">This record is not linked to the simulated animation. The data does not identify the exact sequence of events.</p>
+    </section>
+  </aside>
+      <div id="playbackControls">
+    <button id="playPause" type="button" disabled>▶ Play</button>
+    <input id="timeSlider" type="range" min="0" max="0" step="0.08" value="0" aria-label="Playback position" disabled>
+    <span id="timeLabel">00:00 / 00:00</span>
+  </div>
+  <script>
+    // 手元の現在のionトークンを入れる
+    Cesium.Ion.defaultAccessToken = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJub25jZSI6ImpFcXZNTjFKX3dkbVNOeTMiLCJqdGkiOiJhMmQ4NzRiNy1hYjUzLTQ1NDQtODljYi1iNGRlMmMwMjZmNjciLCJpZCI6MjE5OTg2LCJzdWIiOiJTYWxseXlhbWEiLCJpc3MiOiJodHRwczovL2FwaS5jZXNpdW0uY29tIiwiYXVkIjoiUmhlaW5fR2l0X3B1YmxpYyIsImlhdCI6MTc5MjE4MDIxMX0.kMqViDAKSXhWh3V1UjjFP0WqV_VyUvCDTIZnreq-MA8";
+
+    if (Cesium.Ion.defaultAccessToken.startsWith("REPLACE_WITH_")) {
+      document.getElementById("publishNotice").hidden = false;
+      throw new Error("Configure a restricted Cesium ion read-only token before deployment.");
+    }
+    const viewer = new Cesium.Viewer('cesiumContainer', {
+      terrain: Cesium.Terrain.fromWorldTerrain(),
+      geocoder: false,
+      animation: false,
+      timeline: false,
+      infoBox: false
+    });
+
+    viewer.scene.globe.depthTestAgainstTerrain = false;
+
+    async function loadScene() {
+      try {
+        // CityGML由来の3D Tiles
+        const tileset =
+          await Cesium.Cesium3DTileset.fromIonAssetId(6023901);
+        viewer.scene.primitives.add(tileset);
+
+        // GeoJSONで置き換える元の道路を隠す
+        tileset.style = new Cesium.Cesium3DTileStyle({
+          show:
+            '${feature["gml:id"]} !== "genID_/mnt/d330d102-a63f-4c0c-929a-3cacf182acf2/source/sources/6023901/citygml_model_utm32.gml_10_16"'
+        });
+
+        // CityGMLとGeoJSONに共通で適用する高さ補正
+        const samples = await fetch("./rheinstrasse_road_samples.json")
+          .then(response => response.json());
+
+        const terrainProvider = await Cesium.createWorldTerrainAsync();
+        const positions = samples.map(p =>
+          Cesium.Cartographic.fromDegrees(p.lon, p.lat)
+        );
+        const terrainPoints = await Cesium.sampleTerrainMostDetailed(
+          terrainProvider, positions
+        );
+
+        const differences = samples
+          .map((p, i) => terrainPoints[i].height - p.height)
+          .filter(Number.isFinite);
+
+        if (!differences.length) {
+          throw new Error("No valid terrain samples");
+        }
+
+        differences.sort((a, b) => a - b);
+        const middle = Math.floor(differences.length / 2);
+        const correction = differences.length % 2
+          ? differences[middle]
+          : (differences[middle - 1] + differences[middle]) / 2;
+
+        console.log("Height correction (m):", correction);
+
+        const center = Cesium.Cartographic.fromCartesian(
+          tileset.boundingSphere.center
+        );
+        const from = Cesium.Cartesian3.fromRadians(
+          center.longitude, center.latitude, 0
+        );
+        const to = Cesium.Cartesian3.fromRadians(
+          center.longitude, center.latitude, correction
+        );
+        const translation = Cesium.Cartesian3.subtract(
+          to, from, new Cesium.Cartesian3()
+        );
+
+        tileset.modelMatrix = Cesium.Matrix4.fromTranslation(translation);
+
+        const shiftPosition = (position, offset = 0) => {
+          const shifted = Cesium.Cartesian3.add(
+            position, translation, new Cesium.Cartesian3()
+          );
+
+          if (offset === 0) return shifted;
+
+          const c = Cesium.Cartographic.fromCartesian(shifted);
+          return Cesium.Cartesian3.fromRadians(
+            c.longitude, c.latitude, c.height + offset
+          );
+        };
+
+        const shiftHierarchy = (hierarchy, offset = 0) =>
+          new Cesium.PolygonHierarchy(
+            hierarchy.positions.map(p => shiftPosition(p, offset)),
+            (hierarchy.holes || []).map(
+              hole => shiftHierarchy(hole, offset)
+            )
+          );
+
+        const loadGeoJson = async assetId => {
+          const resource = await Cesium.IonResource.fromAssetId(assetId);
+          return Cesium.GeoJsonDataSource.load(resource, {
+            clampToGround: false
+          });
+        };
+
+        // Traffic Area
+        const roads = await loadGeoJson(6026374);
+
+        const roadColors = {
+          DRIVING: "#B9BEC4",
+          PARKING: "#858B92",
+          BIKING: "#EFA6AA",
+          SIDEWALK: "#A9CBE8"
+        };
+
+        for (const entity of roads.entities.values) {
+          if (!entity.polygon) continue;
+
+          const hierarchy = entity.polygon.hierarchy
+            .getValue(viewer.clock.currentTime);
+
+          entity.polygon.hierarchy = shiftHierarchy(hierarchy);
+          entity.polygon.perPositionHeight = true;
+          entity.polygon.outline = false;
+
+          const category = entity.properties?.openDrive1
+            ?.getValue(viewer.clock.currentTime);
+
+          const color = roadColors[
+            String(category ?? "").trim().toUpperCase()
+          ] ?? "#A5ABB1";
+
+          entity.polygon.material =
+            Cesium.Color.fromCssColorString(color);
+        }
+
+        await viewer.dataSources.add(roads);
+        console.log("Traffic Area loaded:", roads.entities.values.length);
+
+        // Marking：Traffic Areaより6 cm上
+        const markings = await loadGeoJson(6026396);
+        const markingOffset = 0.06;
+
+        for (const entity of markings.entities.values) {
+          if (entity.polygon) {
+            const hierarchy = entity.polygon.hierarchy
+              .getValue(viewer.clock.currentTime);
+
+            entity.polygon.hierarchy =
+              shiftHierarchy(hierarchy, markingOffset);
+            entity.polygon.perPositionHeight = true;
+            entity.polygon.material = Cesium.Color.WHITE;
+            entity.polygon.outline = false;
+          }
+
+          if (entity.polyline) {
+            const positions = entity.polyline.positions
+              .getValue(viewer.clock.currentTime);
+
+            entity.polyline.positions = positions.map(
+              p => shiftPosition(p, markingOffset)
+            );
+            entity.polyline.clampToGround = false;
+            entity.polyline.material = Cesium.Color.WHITE;
+          }
+        }
+
+        await viewer.dataSources.add(markings);
+        console.log("Marking loaded:", markings.entities.values.length);
+
+        // CityGML の SolitaryVegetationObject と同じ基点・高さで GLB を置く。
+        // 6029905 と 6015982 は 3D Tiles なので、個別インスタンスには元の GLB を使用。
+        const vegetationResponse = await fetch("./rheinstrasse_vegetation.json");
+        if (!vegetationResponse.ok) {
+          throw new Error(`Vegetation metadata: HTTP ${vegetationResponse.status}`);
+        }
+        const vegetation = await vegetationResponse.json();
+        const modelInfo = {
+          tree: {
+            uri: "./models/tree-placeholder.glb", // ion: 6029905 の元モデル
+            minY: 0,
+            height: 107.06470489501953
+          },
+          vegetation: {
+            uri: "./models/bush.glb", // 茂み用 GLB。ion: 6015982 は 3D Tiles
+            minY: -2.1020116806030273,
+            height: 28.284924507141113
+          }
+        };
+        const vegetationEntities = [];
+        for (const item of vegetation) {
+          const info = modelInfo[item.name];
+          if (!info || !(item.height > 0)) continue;
+          const scale = item.height / info.height;
+          const position = Cesium.Cartesian3.fromDegrees(
+            item.lon, item.lat,
+            item.baseZ + correction - info.minY * scale
+          );
+          // モデルの向きを個体ごとに固定して単調な並びを避ける。
+          let hash = 0;
+          for (const c of item.id) hash = ((hash * 31 + c.charCodeAt(0)) >>> 0);
+          const orientation = Cesium.Transforms.headingPitchRollQuaternion(
+            position, new Cesium.HeadingPitchRoll(hash / 4294967296 * Cesium.Math.TWO_PI, 0, 0)
+          );
+          vegetationEntities.push(viewer.entities.add({
+            id: `vegetation-${item.id}`,
+            name: item.name === "tree" ? "Tree" : "Bush",
+            position,
+            orientation,
+            properties: {
+              gmlId: item.id,
+              gmlName: item.name,
+              vegetationHeight: item.height,
+              trunkDiameter: item.trunkDiameter
+            },
+            model: {
+              uri: info.uri,
+              scale,
+              minimumPixelSize: 0,
+              heightReference: Cesium.HeightReference.NONE
+            }
+          }));
+        }
+
+        // GLB がすべて配置された後に元の円柱状の植生を隠す。
+        tileset.style = new Cesium.Cesium3DTileStyle({
+          show: '${feature["gml:id"]} !== "genID_/mnt/d330d102-a63f-4c0c-929a-3cacf182acf2/source/sources/6023901/citygml_model_utm32.gml_10_16" && ${feature["gml:name"]} !== "tree" && ${feature["gml:name"]} !== "vegetation"'
+        });
+        console.log("Vegetation models placed:", vegetationEntities.length);
+        // TUM DOT：車・自転車の実測軌跡
+        const mobilityResponse = await fetch(
+          "./TUM DOT raw - 2/tumdot_muc_part_2 - tracks.json"
+        );
+        if (!mobilityResponse.ok) {
+          throw new Error(`Mobility JSON: HTTP ${mobilityResponse.status}`);
+        }
+        const mobility = await mobilityResponse.json();
+
+        const clockwise92 = Cesium.Math.toRadians(92);
+
+        const models = {
+          1: {
+            uri: "./models/toyota_camry_2020.glb",
+            length: 4.900,
+            bottomOffset: 0.0,
+            headingOffset: clockwise92
+          },
+          3: {
+            uri: "./models/Meshy_Red_Rider_colored.glb",
+            length: 1.900052,
+            bottomOffset: 0.870482,
+            headingOffset: -Math.PI / 2 + clockwise92
+          }
+        };
+        const carColorUris = await carBodyColorUris(models[1].uri);
+
+        // TUM DOTのtimestamp=0は2022-10-12 14:59:25（ミュンヘン現地時間）
+        const referenceTime = Cesium.JulianDate.fromIso8601(
+          "2022-10-12T12:59:25Z"
+        );
+        const sceneStart = Cesium.JulianDate.addSeconds(
+          referenceTime, mobility.startTimestamp, new Cesium.JulianDate()
+        );
+
+        let lastSampleTime = 0;
+        let placedSegments = 0;
+        const mobilityEntities = new Map();
+        for (const track of mobility.tracks) {
+          const modelInfo = models[track.category];
+          if (!modelInfo) continue;
+          // All segments of a track keep the same body color.
+          const carColorIndex = Array.from(String(track.id)).reduce(
+            (hash, char) => (hash * 31 + char.charCodeAt(0)) >>> 0, 0
+          ) % carColorUris.length;
+
+          for (let segmentIndex = 0; segmentIndex < track.segments.length; segmentIndex++) {
+            const segment = track.segments[segmentIndex];
+            if (!segment.length) continue;
+
+            // 各trackの観測寸法に合わせた均一縮尺
+            const scale = segment[0][5] / modelInfo.length;
+            const position = new Cesium.SampledPositionProperty();
+            const orientation = new Cesium.SampledProperty(Cesium.Quaternion);
+            const times = [];
+            const positions = [];
+            const rotations = [];
+
+            for (const sample of segment) {
+              const [t, lon, lat, roadZ, rotationZ] = sample;
+              const time = Cesium.JulianDate.addSeconds(
+                sceneStart, t, new Cesium.JulianDate()
+              );
+              const point = Cesium.Cartesian3.fromDegrees(
+                lon, lat,
+                roadZ + correction + modelInfo.bottomOffset * scale
+              );
+              const heading = -rotationZ + modelInfo.headingOffset;
+
+              times.push(time);
+              positions.push(point);
+              rotations.push(Cesium.Transforms.headingPitchRollQuaternion(
+                point, new Cesium.HeadingPitchRoll(heading, 0, 0)
+              ));
+              lastSampleTime = Math.max(lastSampleTime, t);
+            }
+
+            // 最後の観測点を0.08秒間保持してから消す
+            const end = Cesium.JulianDate.addSeconds(
+              times.at(-1), 0.08, new Cesium.JulianDate()
+            );
+            times.push(end);
+            positions.push(positions.at(-1));
+            rotations.push(rotations.at(-1));
+
+            position.addSamples(times, positions);
+            orientation.addSamples(times, rotations);
+
+            const mobilityEntity = viewer.entities.add({
+              id: `mobility-${track.id}-${segmentIndex}`,
+              name: track.category === 1 ? "Car" : "Cyclist",
+              availability: new Cesium.TimeIntervalCollection([
+                new Cesium.TimeInterval({ start: times[0], stop: end })
+              ]),
+              position,
+              orientation,
+              properties: { trackId: track.id, category: track.category },
+              model: {
+                uri: track.category === 1 ? carColorUris[carColorIndex] : modelInfo.uri,
+                scale,
+                minimumPixelSize: 0,
+                heightReference: Cesium.HeightReference.NONE
+              }
+            });
+            mobilityEntities.set(mobilityEntity.id, {
+              entity: mobilityEntity,
+              segment,
+              category: track.category,
+              scale,
+              bottomOffset: modelInfo.bottomOffset
+            });
+            placedSegments++;
+          }
+        }
+
+        const sceneEnd = Cesium.JulianDate.addSeconds(
+          sceneStart, lastSampleTime + 0.08, new Cesium.JulianDate()
+        );
+        viewer.clock.startTime = Cesium.JulianDate.clone(sceneStart);
+        viewer.clock.stopTime = Cesium.JulianDate.clone(sceneEnd);
+        viewer.clock.currentTime = Cesium.JulianDate.clone(sceneStart);
+        viewer.clock.clockRange = Cesium.ClockRange.LOOP_STOP;
+        viewer.clock.multiplier = 1;
+        viewer.clock.shouldAnimate = true;
+        const playPause = document.getElementById("playPause");
+        const timeSlider = document.getElementById("timeSlider");
+        const timeLabel = document.getElementById("timeLabel");
+        const totalSeconds = Cesium.JulianDate.secondsDifference(sceneEnd, sceneStart);
+        let playbackStart = sceneStart;
+        let playbackSeconds = totalSeconds;
+        let playbackIsScenario = false;
+        const povToast = document.getElementById("povToast");
+        const povLegend = document.getElementById("povLegend");
+        let povToastTimer;
+        function showHint(headline, detail = "", duration = 4800) {
+          clearTimeout(povToastTimer);
+          povToast.replaceChildren();
+          povToast.append(document.createTextNode(headline));
+          if (detail) {
+            const line = document.createElement("span");
+            line.className = "hintDetail";
+            line.textContent = detail;
+            povToast.append(line);
+          }
+          povToast.hidden = false;
+          povToastTimer = setTimeout(() => { povToast.hidden = true; }, duration);
+        }
+        window.showMunichHint = showHint;
+        function showPovToast() {
+          showHint("◉ Click a car or bicycle to enter POV", "← → Look around · Esc to exit");
+        }
+
+        const formatTime = seconds => {
+          const s = Math.floor(Math.max(0, seconds));
+          return `${String(Math.floor(s / 60)).padStart(2, "0")}:` +
+            `${String(s % 60).padStart(2, "0")}`;
+        };
+
+        timeSlider.max = totalSeconds.toFixed(2);
+        timeSlider.disabled = false;
+        playPause.disabled = false;
+
+        playPause.addEventListener("click", () => {
+          viewer.clock.shouldAnimate = !viewer.clock.shouldAnimate;
+          updatePlaybackControls();
+        });
+
+        timeSlider.addEventListener("input", () => {
+          viewer.clock.shouldAnimate = false;
+          viewer.clock.currentTime = Cesium.JulianDate.addSeconds(
+            playbackStart, Number(timeSlider.value), new Cesium.JulianDate()
+          );
+          updatePlaybackControls();
+        });
+
+        function setPlayback(start, end, isScenario) {
+          playbackStart = start;
+          playbackSeconds = Cesium.JulianDate.secondsDifference(end, start);
+          playbackIsScenario = isScenario;
+          timeSlider.max = playbackSeconds.toFixed(3);
+          timeSlider.step = isScenario ? "0.01" : "0.08";
+          updatePlaybackControls();
+          if (isScenario) showPovToast();
+        }
+
+        function updatePlaybackControls() {
+          const elapsed = Cesium.Math.clamp(
+            Cesium.JulianDate.secondsDifference(viewer.clock.currentTime, playbackStart),
+            0, playbackSeconds
+          );
+          timeSlider.value = elapsed.toFixed(2);
+          timeLabel.textContent = playbackIsScenario
+            ? `${elapsed.toFixed(1)} / ${playbackSeconds.toFixed(1)} s`
+            : `${formatTime(elapsed)} / ${formatTime(playbackSeconds)}`;
+          playPause.textContent = viewer.clock.shouldAnimate ? "⏸ Pause" : "▶ Play";
+        }
+
+        viewer.clock.onTick.addEventListener(updatePlaybackControls);
+        updatePlaybackControls();
+        await placeParkedCars(viewer, {
+          roads,
+          correction,
+          model: models[1],
+          mobilityEntities
+        });
+        const pov = installMunichPov(viewer, mobilityEntities, sceneStart);
+        viewer.scene.postRender.addEventListener(() => {
+          const active = viewer.scene.screenSpaceCameraController.enableInputs === false;
+          if (povLegend.hidden === active) povLegend.hidden = !active;
+        });
+        let accidentStatistics = null;
+        try {
+          accidentStatistics = await installAccidentStatistics(viewer, {
+            correction, roadSamples: samples
+          });
+        } catch (accidentError) {
+          console.warn("Accident statistics unavailable:", accidentError);
+        }
+        pov.onChange(active => accidentStatistics?.setPovActive(active));
+        try {
+          await installConflictMode(viewer, {
+            correction, models, mobilityEntities, sceneStart, sceneEnd, pov, setPlayback,
+            roadSamples: samples,
+            showHint,
+            onAreaSelected: name => accidentStatistics?.selectIntersection(name),
+            onModeChanged: mode => {
+              accidentStatistics?.setMode(mode);
+              if (mode === "real") showPovToast();
+              else showHint("◎ Click an intersection to see more detail",
+                "✹ Click an accident symbol for recorded crash details");
+            }
+          });
+        } catch (scenarioError) {
+          console.warn("Scenario mode unavailable:", scenarioError);
+        }
+        console.log("Mobility segments placed:", placedSegments);
+        await viewer.zoomTo(tileset);
+        showPovToast();
+      } catch (error) {
+        console.error("Failed to load scene:", error);
+      }
+    }
+
+    loadScene();
+  </script>
+</body>
+
+</html>
